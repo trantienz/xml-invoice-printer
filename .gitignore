@@ -1,0 +1,12 @@
+# Hoá đơn mẫu và dữ liệu thật: không đưa lên GitHub
+Sample*/
+*.xml
+*.pdf
+da-in.txt
+
+# File hệ thống và trình soạn thảo
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/

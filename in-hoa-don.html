@@ -1,0 +1,1403 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>In hoá đơn hàng loạt</title>
+<style>
+  :root {
+    --accent: #1f5fbf;
+    --accent-weak: #e6eefb;
+    --danger: #c62828;
+    --danger-weak: #fdecea;
+    --bg: #eef1f5;
+    --panel: #ffffff;
+    --line: #d5dbe3;
+    --text: #1d2430;
+    --muted: #5d6878;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font: 14px/1.4 "Segoe UI", system-ui, sans-serif; color: var(--text); background: var(--bg); }
+  button, input, select { font: inherit; color: inherit; }
+
+  /* ---------- Thanh công cụ ---------- */
+  #app header {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    padding: 10px 16px;
+  }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .bar + .bar { margin-top: 8px; }
+  .title { font-weight: 600; font-size: 16px; margin-right: 8px; }
+  .spacer { flex: 1; }
+  button {
+    border: 1px solid var(--line); background: #fff; border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; white-space: nowrap;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.1); }
+  input[type=search], input[type=date], select {
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: #fff;
+  }
+  input[type=search] { width: 240px; }
+  .field { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+  #folderName { color: var(--muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #status { color: var(--muted); font-size: 13px; }
+  .hint { color: var(--muted); font-size: 12.5px; }
+  .warn { color: var(--danger); font-weight: 600; }
+
+  /* ---------- Lưới thumbnail ---------- */
+  main { padding: 16px; }
+  #grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 1300px) { #grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 1000px) { #grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 700px)  { #grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .card {
+    position: relative; background: var(--panel); border: 2px solid transparent; border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.12); overflow: hidden; cursor: pointer;
+  }
+  .card.sel { border-color: var(--accent); background: var(--accent-weak); }
+  .card .chk { position: absolute; top: 6px; left: 6px; z-index: 2; background: #fff; border-radius: 4px; padding: 2px 4px; box-shadow: 0 0 0 1px var(--line); }
+  .card .chk input { width: 18px; height: 18px; margin: 0; vertical-align: middle; cursor: pointer; }
+  .thumb { position: relative; aspect-ratio: 210 / 296; overflow: hidden; background: #fff; border-bottom: 1px solid var(--line); cursor: zoom-in; }
+  .thumb .a4-page { position: absolute; left: 0; top: 0; transform-origin: 0 0; transform: scale(var(--s, .25)); pointer-events: none; }
+  .cap { padding: 6px 8px 8px; font-size: 13px; }
+  .cap .l1, .cap .l3 { display: flex; justify-content: space-between; gap: 6px; }
+  .cap .l1 span { color: var(--muted); }
+  .cap .buyer { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0; }
+  .badge { font-size: 11.5px; padding: 0 6px; border-radius: 10px; background: #fff3cd; color: #7a5a00; border: 1px solid #f0d27a; }
+  .badge.ok { background: #e3f4e4; color: #22662a; border-color: #9fd3a4; }
+  .card:not(.printed) .pr { display: none; }
+  /* Dấu "Đã in" đỏ đóng chéo lên hoá đơn (chỉ trên màn hình, không in ra giấy) */
+  .stamp {
+    position: absolute; inset: 0; z-index: 1; display: grid; place-items: start; pointer-events: none;
+    padding: calc(138px * var(--ss, .3)) 0 0 calc(50px * var(--ss, .3));   /* góc trên bên trái, chừa chỗ ô chọn */
+  }
+  .stamp span {
+    transform: rotate(-30deg); white-space: nowrap; color: #d32f2f; font-weight: 800; letter-spacing: 1px;
+    font-size: calc(55px * var(--ss, .3)); border: calc(4.5px * var(--ss, .3) + 1px) solid #d32f2f;
+    border-radius: calc(10px * var(--ss, .3)); padding: 0 .35em; background: rgba(255,255,255,.75);
+  }
+  .thumb .stamp { display: none; }
+  .card.printed .thumb .stamp { display: grid; }
+  .card.err { cursor: default; background: var(--danger-weak); box-shadow: 0 0 0 1px #f3b4ae; }
+  .card.err .errbox { padding: 12px; color: var(--danger); font-size: 13px; }
+  .card.err .errbox b { display: block; color: var(--text); word-break: break-all; margin-bottom: 4px; }
+  .empty { text-align: center; color: var(--muted); padding: 80px 16px; font-size: 15px; }
+
+  /* ---------- Modal phóng to ---------- */
+  #modal { position: fixed; inset: 0; z-index: 50; background: rgba(20,24,32,.82); display: none; flex-direction: column; }
+  #modal.open { display: flex; }
+  #modal .mbar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; color: #fff; }
+  #modal .mbar button:not(.primary) { color: var(--text); }
+  #modal .mbar .info { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #modal .stage { flex: 1; overflow: auto; padding: 0 16px 24px; }
+  #modal .pagewrap { position: relative; margin: 0 auto; box-shadow: 0 4px 24px rgba(0,0,0,.5); }
+  #modal .pagewrap .a4-page { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+
+  /* ---------- Thông báo ---------- */
+  #toast {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 60;
+    width: min(560px, calc(100vw - 32px)); display: none; flex-direction: column; gap: 16px;
+    background: #fff; color: var(--text); border-radius: 12px; padding: 24px 24px 18px;
+    border-top: 6px solid var(--accent); font-size: 17px; line-height: 1.5;
+    box-shadow: 0 16px 56px rgba(0,0,0,.35), 0 0 0 1px rgba(0,0,0,.06);
+  }
+  #toast.show { display: flex; }
+  #toast [hidden] { display: none !important; }
+  #toast .msg { white-space: pre-line; font-weight: 600; }
+  #toast .tactions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+  #toast .tactions button { font-size: 15px; padding: 8px 16px; }
+  #toast .countdown { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+  #toast .bar { flex: 1; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  #toast .bar i { display: block; height: 100%; width: 100%; background: var(--accent); }
+
+  /* ---------- Trang giới thiệu & hướng dẫn ---------- */
+  #intro { min-height: 100vh; padding: 32px 16px 64px; font-size: 15px; line-height: 1.6; }
+  #intro .wrap { max-width: 920px; margin: 0 auto; }
+  #intro .hero {
+    background: linear-gradient(135deg, #1f5fbf, #3b7be0); color: #fff;
+    border-radius: 14px; padding: 36px 36px 32px; box-shadow: 0 6px 24px rgba(31,95,191,.25);
+  }
+  #intro .hero h1 { margin: 0 0 10px; font-size: 32px; line-height: 1.2; }
+  #intro .hero p { font-size: 17px; margin: 0 0 22px; max-width: 680px; opacity: .95; }
+  #intro .start {
+    font-size: 17px; padding: 12px 26px; border: 0; border-radius: 8px;
+    background: #fff; color: var(--accent); font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  }
+  #intro .start:hover { filter: brightness(.97); }
+  #intro .hero .sub { font-size: 13.5px; opacity: .85; margin: 12px 0 0; }
+  #intro section {
+    background: var(--panel); border-radius: 12px; padding: 24px 28px; margin-top: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  #intro h2 { margin: 0 0 14px; font-size: 21px; }
+  #intro h3 { margin: 2px 0 6px; font-size: 16.5px; }
+  #intro p { margin: 6px 0; }
+  #intro ul { margin: 6px 0; padding-left: 22px; }
+  #intro li { margin: 3px 0; }
+  #intro .feats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  #intro .feat { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  #intro .feat .ic { font-size: 26px; line-height: 1; }
+  #intro .feat b { display: block; margin: 8px 0 4px; }
+  #intro .feat p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+  #intro .need { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  #intro .need > div { background: var(--bg); border-radius: 10px; padding: 12px 14px; }
+  #intro ol.steps { list-style: none; counter-reset: step; padding: 0; margin: 0; }
+  #intro ol.steps > li { counter-increment: step; position: relative; padding: 0 0 22px 52px; margin: 0; }
+  #intro ol.steps > li:last-child { padding-bottom: 0; }
+  #intro ol.steps > li::before {
+    content: counter(step); position: absolute; left: 0; top: 0; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-weight: 700; display: grid; place-items: center;
+  }
+  #intro ol.steps > li:not(:last-child)::after {
+    content: ""; position: absolute; left: 16px; top: 40px; bottom: 6px; width: 2px; background: var(--line);
+  }
+  #intro .ui {
+    display: inline-block; border: 1px solid var(--line); border-radius: 5px; padding: 0 7px;
+    background: #fff; font-size: 13.5px; line-height: 1.6; white-space: nowrap; vertical-align: baseline;
+  }
+  #intro .ui.p { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+  #intro .box { border-radius: 8px; padding: 10px 14px; margin: 10px 0; }
+  #intro .box.tip { background: var(--accent-weak); border-left: 4px solid var(--accent); }
+  #intro .box.caution { background: #fff8e1; border-left: 4px solid #f0b400; }
+  #intro table.set { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px; }
+  #intro table.set th, #intro table.set td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+  #intro table.set th { background: var(--bg); }
+  #intro details { border-top: 1px solid var(--line); padding: 10px 0; }
+  #intro details:last-of-type { border-bottom: 1px solid var(--line); }
+  #intro summary { cursor: pointer; font-weight: 600; }
+  #intro details > div { padding: 6px 0 2px 18px; color: #333c4a; }
+  #intro .bottom { text-align: center; margin-top: 28px; }
+  #intro .bottom .start { background: var(--accent); color: #fff; }
+  @media (max-width: 760px) {
+    #intro .feats, #intro .need { grid-template-columns: 1fr; }
+    #intro .hero { padding: 24px 20px; }
+    #intro .hero h1 { font-size: 26px; }
+    #intro section { padding: 18px 16px; }
+  }
+
+  #measure { position: absolute; left: -10000px; top: 0; visibility: hidden; }
+  #print-root { display: none; }
+
+  /* ---------- Trang hoá đơn A4 (mẫu theo trình đọc XML của GDT) ---------- */
+  .a4-page {
+    width: 210mm; height: 296mm; padding: 8mm; background: #fff; color: #000; overflow: hidden;
+    font-family: "Times New Roman", Times, serif; font-size: 13.5px; line-height: 1.4;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .a4-page .frame { height: 100%; border: 3px double rgba(145, 87, 21, .69); padding: 4mm; overflow: hidden; }
+  /* Không co: hoá đơn dài kéo sang trang sau, khung viền lặp lại trên mỗi trang */
+  .a4-page.flow { height: auto; min-height: 296mm; overflow: visible; }
+  .a4-page.flow .frame { height: auto; min-height: 280mm; overflow: visible; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  .inv tr, .inv .signs { break-inside: avoid; }
+  .inv { width: 184mm; }
+  .inv .top { position: relative; }
+  .inv .qr { position: absolute; left: 0; top: 0; width: 20mm; height: 20mm; display: block; }
+  .inv .meta { width: max-content; margin-left: auto; font-weight: bold; font-size: 13px; }
+  .inv h1 { text-align: center; font-size: 21px; margin: 4px 0 6px; letter-spacing: .3px; }
+  .inv .c { text-align: center; }
+  .inv .lq { text-align: center; font-style: italic; margin-top: 2px; }
+  .inv hr { border: 0; border-top: 1px solid rgba(145, 87, 21, .69); margin: 8px 0; }
+  .inv .r { display: flex; line-height: 1.3; }
+  .inv .r .lb { white-space: nowrap; margin-right: 6px; }
+  .inv .r .v { flex: 1; }
+  .inv .rr { display: flex; }
+  .inv .rr .r { flex: 1; }
+  .inv table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  .inv th, .inv td { border: 1px solid #000; padding: 3px 4px; vertical-align: top; line-height: 1.3; }
+  .inv th { text-align: center; font-weight: bold; vertical-align: middle; }
+  .inv table.m2 th { text-align: left; }
+  .inv td.n { text-align: center; white-space: nowrap; }
+  .inv td.m { text-align: center; }
+  .inv .sums td, .inv .sums2 td { text-align: center; }
+  .inv .sums2 { width: auto; max-width: 100%; margin-left: auto; break-inside: avoid; }
+  .inv .sums2 td:first-child { width: 190px; }
+  .inv .totals { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; break-inside: avoid; }
+  .inv .totals table { margin-top: 0; }
+  .inv .totals .left { flex: 0 0 36%; min-width: 0; }
+  .inv .totals .left table + table { margin-top: 8px; }
+  .inv .totals .sums { flex: 1 1 0; min-width: 0; }
+  .inv .totals .sums td:first-child { width: 43%; }
+  .inv > .phi { width: 36%; }
+  .inv .phi th:first-child { width: 14%; }
+  .inv .phi th:last-child { width: 30%; }
+  .inv .signs { display: flex; justify-content: space-around; margin-top: 14px; text-align: center; }
+  .inv .signs .i { font-style: italic; font-size: 12.5px; }
+  .inv .sig {
+    margin-top: 10px; width: 241px; text-align: left; padding: 5px; color: #23b709; border: 2px solid #23b709;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 70 60'%3E%3Cpath fill='%2323b709' d='M4 34l9-9 13 13L62 3l6 6-42 49z'/%3E%3C/svg%3E") no-repeat calc(100% - 42px) calc(100% - 9px) / 65px 56px;
+  }
+  .inv .foot { text-align: center; font-style: italic; margin-top: 16px; font-size: 12px; }
+
+  /* ---------- In ---------- */
+  @media print {
+    html, body { background: #fff; }
+    body > :not(#print-root) { display: none !important; }
+    #print-root { display: block; }
+    #print-root .a4-page { break-after: page; page-break-after: always; }
+    #print-root .a4-page:last-child { break-after: auto; page-break-after: auto; }
+    #print-root .a4-page.flow { width: auto; min-height: 0; padding: 0; }
+    #print-root .a4-page.flow .frame { min-height: 279mm; }
+  }
+</style>
+<!-- Lề trang in: 0 khi co vừa 1 trang (trang tự chừa lề), 8mm khi hoá đơn được kéo dài nhiều trang -->
+<style id="pageRule">@page { size: A4 portrait; margin: 0; }</style>
+</head>
+<body>
+<div id="intro">
+  <div class="wrap">
+    <div class="hero">
+      <h1>🖨️ In hoá đơn hàng loạt</h1>
+      <p>Công cụ giúp bạn in cùng lúc nhiều hoá đơn điện tử từ các file <b>.xml</b> (hoá đơn GTGT mẫu số 1 và hoá đơn bán hàng mẫu số 2, ví dụ xuất từ KiotViet).
+        Bạn không cần mở từng file nữa: chọn thư mục, xem trước tất cả hoá đơn, rồi bấm một nút để in.</p>
+      <button class="start" data-start>Bắt đầu in hoá đơn →</button>
+      <p class="sub">Đọc kỹ hướng dẫn bên dưới nếu đây là lần đầu bạn dùng. Có thể xem lại bất cứ lúc nào bằng nút “Hướng dẫn” trên trang in.</p>
+    </div>
+
+    <section>
+      <h2>Công cụ này làm được gì?</h2>
+      <div class="feats">
+        <div class="feat"><div class="ic">📂</div><b>Đọc cả thư mục một lần</b>
+          <p>Chọn một thư mục là trang tự đọc toàn bộ file hoá đơn .xml bên trong, không phải mở từng file.</p></div>
+        <div class="feat"><div class="ic">🧾</div><b>Trình bày giống trang Thuế</b>
+          <p>Hoá đơn được trình bày theo trang tra cứu hoá đơn trên hoadondientu.gdt.gov.vn, có khung viền và mã QR.</p></div>
+        <div class="feat"><div class="ic">🔎</div><b>Xem trước dạng lưới</b>
+          <p>Mỗi hoá đơn là một ô nhỏ có số hoá đơn, ngày, người mua, tổng tiền. Bấm vào để phóng to xem rõ.</p></div>
+        <div class="feat"><div class="ic">🗂️</div><b>Tìm, lọc, sắp xếp</b>
+          <p>Tìm theo tên hoặc MST người mua, số hoá đơn; lọc theo khoảng ngày; sắp xếp theo số, ngày, tiền.</p></div>
+        <div class="feat"><div class="ic">📄</div><b>Co vừa 1 trang A4 (tuỳ chọn)</b>
+          <p>Hoá đơn nhiều dòng hàng có thể tự thu nhỏ cho vừa một mặt giấy, hoặc giữ cỡ chữ bình thường và in sang trang sau.</p></div>
+        <div class="feat"><div class="ic">✅</div><b>Nhớ hoá đơn đã in</b>
+          <p>Hoá đơn đã in được ghi lại và tự ẩn ở lần sau, giúp bạn không in trùng.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Bạn cần chuẩn bị</h2>
+      <div class="need">
+        <div><b>🌐 Trình duyệt Chrome</b><br>Hoặc Microsoft Edge, trên máy tính. Mở file trang này bằng Chrome là dùng được ngay, <b>không cần Internet</b>.</div>
+        <div><b>📁 Thư mục hoá đơn .xml</b><br>Gom các file .xml cần in vào <b>một thư mục</b>. Hỗ trợ <b>hoá đơn GTGT (mẫu số 1)</b> và <b>hoá đơn bán hàng (mẫu số 2)</b>, kể cả hoá đơn khởi tạo từ máy tính tiền. Hai loại có thể để chung một thư mục.</div>
+        <div><b>🖨️ Máy in khổ A4</b><br>Máy in đã cài trên máy tính và có giấy A4. Nếu chỉ muốn lưu thành file PDF thì không cần máy in.</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Hướng dẫn sử dụng từng bước</h2>
+      <ol class="steps">
+        <li>
+          <h3>Chọn thư mục chứa hoá đơn</h3>
+          <p>Bấm nút <span class="ui p">Chọn thư mục…</span> ở góc trên bên trái. Cửa sổ chọn thư mục của Windows hiện ra: đi tới thư mục chứa các file .xml, bấm vào thư mục đó rồi bấm <b>Chọn thư mục</b> (Select Folder).</p>
+          <p>Chrome sẽ hỏi xin quyền với thư mục này (thường hỏi 1–2 lần, ví dụ “Cho phép trang web xem tệp?” và “Lưu thay đổi?”). Hãy bấm nút <b>đồng ý</b> ở cả hai lần. Trang cần quyền này để ghi lại danh sách hoá đơn đã in vào file <code>da-in.txt</code>. Trang <b>không sửa, không xoá, không di chuyển</b> file hoá đơn của bạn.</p>
+          <div class="box tip">💡 Lần sau mở trang, sẽ có nút <span class="ui">Mở lại thư mục <b>tên thư mục</b></span>. Bấm vào đó để mở ngay thư mục lần trước, không phải tìm lại.</div>
+        </li>
+        <li>
+          <h3>Xem các hoá đơn</h3>
+          <p>Các hoá đơn hiện thành lưới, mỗi hàng khoảng 5 hoá đơn. Dưới mỗi ảnh nhỏ có: <b>số hoá đơn</b>, <b>ngày lập</b>, <b>tên người mua</b> và <b>tổng tiền</b>. Có thể có thêm nhãn:</p>
+          <ul>
+            <li><span class="badge">Thay thế</span> hoặc <span class="badge">Điều chỉnh</span>: hoá đơn này thay thế hoặc điều chỉnh cho một hoá đơn trước đó.</li>
+            <li><span class="badge ok">Đã in</span> và chữ <b style="color:#d32f2f">“Đã in”</b> màu đỏ đóng chéo trên ảnh: hoá đơn đã được in trước đây. Dấu đỏ chỉ hiện trên màn hình, <b>không</b> in ra giấy.</li>
+            <li>Ô <b style="color:var(--danger)">màu đỏ</b>: file bị lỗi hoặc không phải hoá đơn mẫu số 1 / mẫu số 2. Ô đỏ ghi rõ lý do và không in được.</li>
+            <li><span class="badge">GTGT</span>: hoá đơn giá trị gia tăng (mẫu số 1). Hoá đơn này có thêm cột thuế suất và bảng tổng hợp tiền thuế theo từng mức thuế suất.</li>
+          </ul>
+          <p><b>Bấm vào ảnh hoá đơn</b> để phóng to. Trong cửa sổ phóng to:</p>
+          <ul>
+            <li><span class="ui">←</span> <span class="ui">→</span> (hoặc phím mũi tên trên bàn phím): xem hoá đơn trước / sau.</li>
+            <li><span class="ui">Cỡ thật</span>: xem đúng kích thước khi in. Bấm lại để về <span class="ui">Vừa màn hình</span>.</li>
+            <li><span class="ui p">In hoá đơn này</span>: chỉ in riêng hoá đơn đang xem.</li>
+            <li><span class="ui">Đóng (Esc)</span> hoặc phím <b>Esc</b>: quay lại lưới.</li>
+          </ul>
+        </li>
+        <li>
+          <h3>Tìm, lọc và sắp xếp (nếu cần)</h3>
+          <ul>
+            <li><b>Ô tìm kiếm</b>: gõ tên người mua, mã số thuế, số hoá đơn hoặc mã khách hàng. <b>Không cần gõ dấu</b>: gõ “nguyen van” hay “cong ty” đều tìm được.</li>
+            <li><b>Từ … đến …</b>: chỉ hiện hoá đơn có ngày lập trong khoảng này. Để trống là không lọc.</li>
+            <li><b>Sắp xếp</b>: theo số hoá đơn, ngày lập, tên người mua hoặc tổng tiền. Thứ tự trên màn hình cũng là thứ tự các trang khi in.</li>
+            <li><b>Ẩn HĐ đã in</b> (được tick sẵn): ẩn các hoá đơn đã in. Bỏ tick để xem lại hoặc in lại chúng.</li>
+            <li><b>Co vừa 1 trang A4</b> (được tick sẵn): xem giải thích ngay bên dưới.</li>
+          </ul>
+          <p><b>Tuỳ chọn “Co vừa 1 trang A4”</b> quyết định cách in hoá đơn có nhiều dòng hàng:</p>
+          <ul>
+            <li><b>Có tick</b>: mỗi hoá đơn luôn nằm gọn trên <b>đúng 1 mặt giấy A4</b>. Hoá đơn dài sẽ được thu nhỏ chữ cho vừa, nên dễ đếm số tờ và đỡ tốn giấy.</li>
+            <li><b>Bỏ tick</b>: giữ <b>cỡ chữ bình thường</b> cho mọi hoá đơn. Hoá đơn dài sẽ in tiếp sang trang thứ hai (khung viền và dòng tiêu đề bảng được lặp lại ở trang sau). Hoá đơn sẽ in nhiều trang có thêm nhãn <span class="badge">2 trang</span> dưới ảnh để bạn biết trước.</li>
+          </ul>
+          <p>Hoá đơn ngắn thì hai cách in ra giống hệt nhau. Trang sẽ nhớ lựa chọn của bạn cho những lần mở sau.</p>
+          <p>Dòng chữ nhỏ bên phải cho biết: tổng số hoá đơn, bao nhiêu đã in, đang hiển thị bao nhiêu và đã chọn bao nhiêu.</p>
+        </li>
+        <li>
+          <h3>Chọn hoá đơn muốn in</h3>
+          <p>Nếu muốn in <b>tất cả</b> hoá đơn đang hiện trên màn hình thì bỏ qua bước này.</p>
+          <ul>
+            <li>Bấm vào <b>ô vuông</b> ở góc trên bên trái ảnh, hoặc bấm vào <b>phần chữ</b> bên dưới ảnh, để chọn hoặc bỏ chọn. Hoá đơn được chọn có viền xanh.</li>
+            <li><span class="ui">Chọn tất cả</span>: chọn mọi hoá đơn đang hiển thị. <span class="ui">Bỏ chọn</span>: bỏ chọn hết.</li>
+          </ul>
+        </li>
+        <li>
+          <h3>Bấm In</h3>
+          <ul>
+            <li><span class="ui p">In tất cả (số lượng)</span>: in mọi hoá đơn <b>đang hiển thị</b> trên màn hình (đã tính bộ lọc và ô “Ẩn HĐ đã in”).</li>
+            <li><span class="ui p">In đã chọn (số lượng)</span>: chỉ in các hoá đơn bạn đã chọn ở bước 4.</li>
+          </ul>
+          <p>Hộp thoại in của Chrome hiện ra, bên trái là bản xem trước: mỗi hoá đơn bắt đầu ở một trang mới (khi đang tick “Co vừa 1 trang A4” thì <b>mỗi hoá đơn đúng một trang</b>). Kiểm tra các mục sau rồi bấm <b>In</b> (Print):</p>
+          <table class="set">
+            <tr><th>Mục trong hộp thoại in</th><th>Nên chọn</th></tr>
+            <tr><td>Đích / Máy in (Destination)</td><td>Tên máy in của bạn. Chọn <b>Lưu dưới dạng PDF</b> (Save as PDF) nếu muốn lưu thành file thay vì in giấy.</td></tr>
+            <tr><td>Trang (Pages)</td><td>Tất cả (All)</td></tr>
+            <tr><td>Khổ giấy (Paper size)</td><td><b>A4</b></td></tr>
+            <tr><td>Lề (Margins)</td><td>Mặc định (Default) hoặc Không có (None). Trang đã tự chừa lề sẵn.</td></tr>
+            <tr><td>Tỷ lệ (Scale)</td><td>Mặc định (Default), <b>không</b> chọn “Vừa với trang” hay số khác.</td></tr>
+            <tr><td>Đồ họa nền (Background graphics)</td><td>Không cần chỉnh. Trang tự in dấu tích xanh trong ô chữ ký.</td></tr>
+          </table>
+          <div class="box tip">💡 Muốn in thử trước? Hãy chọn 1 hoá đơn, bấm <span class="ui p">In đã chọn (1)</span> để xem máy in ra có đúng ý không, rồi mới in cả loạt.</div>
+        </li>
+        <li>
+          <h3>Sau khi in</h3>
+          <p>Khi hộp thoại in đóng lại, trang tự động:</p>
+          <ul>
+            <li>Ghi tên các hoá đơn vừa in vào file <code>da-in.txt</code> trong thư mục hoá đơn (mỗi dòng gồm tên file, thời gian in, số hoá đơn, người mua, tổng tiền). Bạn có thể mở file này bằng Notepad để xem lại.</li>
+            <li>Gắn nhãn <span class="badge ok">Đã in</span> cho các hoá đơn đó và ẩn chúng khỏi lưới (nếu đang tick “Ẩn HĐ đã in”).</li>
+          </ul>
+          <div class="box caution">⚠️ Chrome không cho trang biết bạn đã bấm <b>In</b> hay <b>Huỷ</b>, nên kể cả khi bấm Huỷ, hoá đơn vẫn bị đánh dấu “Đã in”.
+            Lúc đó hãy bấm nút <span class="ui p">Hoàn tác, hoá đơn chưa được in.</span> trên thông báo hiện ở giữa màn hình để bỏ đánh dấu.
+            Thông báo có thanh đếm ngược và tự đóng sau <b>30 giây</b>; nếu đã in xong bình thường, bạn có thể bấm <span class="ui">✕ Đóng</span> để tắt ngay.</div>
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Câu hỏi thường gặp</h2>
+      <details>
+        <summary>Hoá đơn có nhiều dòng hàng có bị cắt mất phần cuối không?</summary>
+        <div>Không, dù chọn cách nào. Khi tick <b>Co vừa 1 trang A4</b>, trang thu nhỏ chữ của hoá đơn dài cho vừa đúng một trang; khi phóng to hoá đơn, dòng trên cùng ghi “đã co …% cho vừa 1 trang” để bạn biết (hoá đơn vài chục dòng sẽ có chữ khá nhỏ). Khi bỏ tick, chữ giữ nguyên cỡ và phần còn lại được in sang trang sau; dòng trên cùng ghi “in thành … trang”.</div>
+      </details>
+      <details>
+        <summary>Tôi muốn in lại một hoá đơn đã in thì làm thế nào?</summary>
+        <div>Bỏ tick ô <b>Ẩn HĐ đã in</b>, tìm hoá đơn đó, chọn nó rồi bấm <span class="ui p">In đã chọn</span>. Hoặc bấm vào ảnh để phóng to rồi bấm <span class="ui p">In hoá đơn này</span>.</div>
+      </details>
+      <details>
+        <summary>Làm sao để trang “quên” hết các hoá đơn đã in?</summary>
+        <div>Xoá file <code>da-in.txt</code> trong thư mục hoá đơn (hoặc mở bằng Notepad và xoá những dòng không muốn), rồi bấm <span class="ui">Tải lại</span> trên trang.</div>
+      </details>
+      <details>
+        <summary>Tôi có thêm file hoá đơn mới vào thư mục, trang không thấy?</summary>
+        <div>Bấm <span class="ui">Tải lại</span> để trang đọc lại thư mục. Lưu ý: trang chỉ đọc file .xml nằm <b>ngay trong</b> thư mục đã chọn, không đọc các thư mục con bên trong.</div>
+      </details>
+      <details>
+        <summary>Có ô màu đỏ trong lưới là sao?</summary>
+        <div>File đó bị hỏng, không phải file hoá đơn điện tử, hoặc là loại hoá đơn khác mẫu số 1 và mẫu số 2 (ví dụ phiếu xuất kho, tem vé). Lý do được ghi ngay trong ô đỏ. Các hoá đơn khác vẫn in bình thường.</div>
+      </details>
+      <details>
+        <summary>Tôi bấm Ctrl + P có được không?</summary>
+        <div>Được, Chrome sẽ in các hoá đơn đang hiển thị, nhưng trang <b>không</b> đánh dấu “Đã in” cho chúng. Nên dùng nút <span class="ui p">In tất cả</span> hoặc <span class="ui p">In đã chọn</span>.</div>
+      </details>
+      <details>
+        <summary>Thấy dòng chữ đỏ “Chế độ chỉ đọc” là sao?</summary>
+        <div>Trình duyệt bạn đang dùng không cho trang ghi file vào thư mục (thường là do không dùng Chrome hoặc Edge). Bạn vẫn xem và in được, nhưng danh sách đã in chỉ được nhớ đến khi đóng trang, không lưu vào <code>da-in.txt</code>. Hãy mở trang bằng Chrome để dùng đầy đủ.</div>
+      </details>
+      <details>
+        <summary>Dữ liệu hoá đơn có bị gửi lên mạng không?</summary>
+        <div>Không. Mọi việc diễn ra ngay trên máy tính của bạn, trang không kết nối Internet và không gửi dữ liệu đi đâu.</div>
+      </details>
+      <details>
+        <summary>Ô “Signature Valid” trên hoá đơn có nghĩa là chữ ký đã được kiểm tra?</summary>
+        <div>Không. Trang chỉ hiển thị thông tin người ký và thời gian ký có sẵn trong file .xml, giống cách trang của Tổng cục Thuế trình bày, chứ không kiểm tra chữ ký số. Muốn kiểm tra tính hợp lệ, hãy dùng chức năng tra cứu trên hoadondientu.gdt.gov.vn.</div>
+      </details>
+      <details>
+        <summary>Thư mục có cả file .pdf đi kèm thì sao?</summary>
+        <div>Không sao. Trang chỉ đọc file .xml và bỏ qua các file khác.</div>
+      </details>
+    </section>
+
+    <div class="bottom">
+      <button class="start" data-start>Bắt đầu in hoá đơn →</button>
+    </div>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div class="bar">
+      <span class="title">In hoá đơn hàng loạt</span>
+      <button id="btnPick" class="primary">Chọn thư mục…</button>
+      <button id="btnReopen" hidden></button>
+      <button id="btnReload" disabled>Tải lại</button>
+      <span id="folderName"></span>
+      <button id="btnHelp" title="Xem lại giới thiệu và hướng dẫn sử dụng">❓ Hướng dẫn</button>
+      <span class="spacer"></span>
+      <button id="btnPrintSel" class="primary" disabled>In đã chọn (0)</button>
+      <button id="btnPrintAll" class="primary" disabled>In tất cả (0)</button>
+    </div>
+    <div class="bar">
+      <input id="q" type="search" placeholder="Tìm người mua, MST, số HĐ…">
+      <label class="field">Từ <input id="dFrom" type="date"></label>
+      <label class="field">đến <input id="dTo" type="date"></label>
+      <label class="field">Sắp xếp
+        <select id="sort">
+          <option value="so-asc">Số HĐ tăng dần</option>
+          <option value="so-desc">Số HĐ giảm dần</option>
+          <option value="date-asc">Ngày lập cũ → mới</option>
+          <option value="date-desc">Ngày lập mới → cũ</option>
+          <option value="buyer">Người mua A → Z</option>
+          <option value="total-desc">Tổng tiền lớn → nhỏ</option>
+        </select>
+      </label>
+      <label class="field" title="Bật: hoá đơn dài tự thu nhỏ cho vừa 1 mặt A4. Tắt: giữ cỡ chữ bình thường, hoá đơn dài in sang trang thứ hai."><input id="fitPage" type="checkbox" checked> Co vừa 1 trang A4</label>
+      <label class="field"><input id="hidePrinted" type="checkbox" checked> Ẩn HĐ đã in</label>
+      <button id="btnSelAll">Chọn tất cả</button>
+      <button id="btnSelNone">Bỏ chọn</button>
+      <span class="spacer"></span>
+      <span id="status"></span>
+    </div>
+    <div class="bar hint" id="hint">Sau khi đóng hộp thoại in, các hoá đơn vừa in được ghi vào file “da-in.txt” trong thư mục và đánh dấu “Đã in”.</div>
+  </header>
+  <main>
+    <div id="grid"></div>
+    <div id="empty" class="empty">Bấm <b>Chọn thư mục…</b> để mở thư mục chứa các file hoá đơn .xml</div>
+  </main>
+  <input id="dirInput" type="file" webkitdirectory multiple hidden>
+</div>
+
+<div id="modal">
+  <div class="mbar">
+    <button id="mPrev">←</button>
+    <button id="mNext">→</button>
+    <span class="info" id="mInfo"></span>
+    <button id="mFit">Cỡ thật</button>
+    <button id="mPrint" class="primary">In hoá đơn này</button>
+    <button id="mClose">Đóng (Esc)</button>
+  </div>
+  <div class="stage" id="mStage"></div>
+</div>
+
+<div id="toast" role="status">
+  <div class="msg"></div>
+  <div class="tactions"><button class="act primary" hidden></button><button class="dismiss">✕ Đóng</button></div>
+  <div class="countdown" hidden><div class="bar"><i></i></div><span></span></div>
+</div>
+<div id="measure"></div>
+<div id="print-root"></div>
+
+<script>
+'use strict';
+
+const $ = id => document.getElementById(id);
+const MM = 96 / 25.4;                 // px trên 1mm
+const PAGE_W = 210 * MM;
+const PAGE_H = 296 * MM;
+const CONTENT_W_MM = 184;             // 210mm trừ lề 2 × 8mm, khung viền và đệm 2 × 4mm
+const AVAIL_H = 269 * MM;             // 296mm trừ lề, khung viền, đệm; chừa 1mm an toàn
+const LOG_FILE = 'da-in.txt';
+
+const state = {
+  dir: null,          // FileSystemDirectoryHandle (null khi ở chế độ chỉ đọc)
+  readOnly: false,
+  items: [],
+  selected: new Set(),
+  printed: new Set(), // tên file (chữ thường) đã có trong da-in.txt
+  pending: null,      // các hoá đơn đang chờ in
+  lastMark: null,     // để Hoàn tác
+  modalList: [], modalIdx: 0, modalFull: false,
+};
+let seq = 0;
+
+/* ===================== Tiện ích ===================== */
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const norm = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toLowerCase();
+const nf = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 6 });
+const num = v => { if (v === '' || v == null) return ''; const n = Number(v); return Number.isFinite(n) ? nf.format(n) : v; };
+const dmy = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso || ''); };
+const ngayChu = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? `Ngày ${m[3]} tháng ${m[2]} năm ${m[1]}` : ''; };
+
+// Duyệt phần tử con theo localName (bỏ qua namespace), ví dụ child(el, 'NDHDon/NBan')
+const child = (el, path) => path.split('/').reduce((e, n) => e && [...e.children].find(c => c.localName === n) || null, el);
+const kids = (el, name) => el ? [...el.children].filter(c => c.localName === name) : [];
+const t = (el, path) => (child(el, path)?.textContent ?? '').trim();
+const deep = (el, name) => el ? (el.getElementsByTagNameNS('*', name)[0]?.textContent ?? '').trim() : '';
+
+/* ===================== Đọc XML ===================== */
+const TCHAT = { 1: 'Hàng hóa, dịch vụ', 2: 'Khuyến mại', 3: 'Chiết khấu thương mại', 4: 'Ghi chú, diễn giải', 5: 'Hàng hoá đặc trưng' };
+
+function parseInvoice(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new Error('File XML bị lỗi, không đọc được.');
+  const root = doc.documentElement;
+  if (root.localName !== 'HDon') throw new Error('Không phải file hoá đơn điện tử (thiếu thẻ HDon).');
+  const tt = child(root, 'DLHDon/TTChung');
+  const nd = child(root, 'DLHDon/NDHDon');
+  if (!tt || !nd) throw new Error('Thiếu phần thông tin chung hoặc nội dung hoá đơn.');
+  const khms = t(tt, 'KHMSHDon');
+  if (khms !== '1' && khms !== '2') {
+    throw new Error(`Chỉ hỗ trợ hoá đơn mẫu số 1 (GTGT) và mẫu số 2 (bán hàng); file này là mẫu số ${khms || '?'}.`);
+  }
+
+  // Một số phần mềm ghi thẻ <TTHDLQuan/> rỗng cho hoá đơn thường: chỉ coi là hoá đơn liên quan khi có số/ký hiệu gốc
+  let lqEl = child(tt, 'TTHDLQuan');
+  if (lqEl && !t(lqEl, 'SHDCLQuan') && !t(lqEl, 'KHHDCLQuan')) lqEl = null;
+  const nb = child(nd, 'NBan');
+  const nm = child(nd, 'NMua');
+  const toan = child(nd, 'TToan');
+  const sigEl = child(root, 'DSCKS/NBan');
+  const subject = deep(sigEl, 'X509SubjectName');
+  // Có thẻ danh sách phí thì GDT vẫn hiện bảng phí, kể cả khi thẻ rỗng
+  const phi = kids(child(toan, 'DSLPhi'), 'LPhi').map(p => ({ ten: t(p, 'TLPhi'), tien: t(p, 'TPhi') || t(p, 'TTPhi') }));
+
+  const inv = {
+    khms, khhd: t(tt, 'KHHDon'), so: t(tt, 'SHDon').replace(/^0+(?=\d)/, ''), ngayLap: t(tt, 'NLap'), httt: t(tt, 'HTTToan'),
+    mccqt: t(root, 'MCCQT'), gtgt: khms === '1',
+    // Cột "Loại hàng hoá đặc trưng" có từ định dạng XML 2.1.0
+    coDT: ['2.1.0', '2.1.1'].includes(t(tt, 'PBan')),
+    // Ký tự thứ 4 của ký hiệu là M: hoá đơn khởi tạo từ máy tính tiền (GDT dùng bố cục rút gọn)
+    mtt: t(tt, 'KHHDon').charAt(3).toUpperCase() === 'M',
+    dvtt: t(tt, 'DVTTe'), soBK: t(tt, 'SBKe'), ngayBK: t(tt, 'NBKe'),
+    lq: lqEl ? {
+      loai: t(lqEl, 'TCHDon'), khms: t(lqEl, 'KHMSHDCLQuan'), khhd: t(lqEl, 'KHHDCLQuan'),
+      so: t(lqEl, 'SHDCLQuan'), ngay: t(lqEl, 'NLHDCLQuan'), ghiChu: t(lqEl, 'GChu'),
+    } : null,
+    nban: {
+      ten: t(nb, 'Ten'), mst: t(nb, 'MST'), dchi: t(nb, 'DChi'), sdt: t(nb, 'SDThoai'),
+      stk: t(nb, 'STKNHang'), nganHang: t(nb, 'TNHang'), maCH: t(nb, 'MCHang'), tenCH: t(nb, 'TCHang'),
+    },
+    nmua: {
+      ten: t(nm, 'Ten'), hoTen: t(nm, 'HVTNMHang'), mst: t(nm, 'MST'), dchi: t(nm, 'DChi'),
+      sdt: t(nm, 'SDThoai'), cccd: t(nm, 'CCCDan'), hoChieu: t(nm, 'SHChieu'), maDVQHNS: t(nm, 'MDVQHNSach'),
+      stk: t(nm, 'STKNHang'), nganHang: t(nm, 'TNHang'),
+      ttKhac: kids(child(nm, 'TTKhac'), 'TTin').map(x => ({ k: t(x, 'TTruong'), v: t(x, 'DLieu') })),
+    },
+    items: kids(child(nd, 'DSHHDVu'), 'HHDVu').map(h => ({
+      stt: t(h, 'STT'), tchat: t(h, 'TChat'), ma: t(h, 'MHHDVu'), ten: t(h, 'THHDVu'), dvt: t(h, 'DVTinh'),
+      sl: t(h, 'SLuong'), dg: t(h, 'DGia'), tlck: t(h, 'TLCKhau'), stck: t(h, 'STCKhau'), thTien: t(h, 'ThTien'),
+      tsuat: t(h, 'TSuat'), loaiDT: t(h, 'LHHDTrung'),
+      dt: kids(child(h, 'TTHHDTrung'), 'TTin').map(x => ({ k: t(x, 'TTruong'), v: t(x, 'DLieu'), loai: t(x, 'LHHDTrung') })),
+    })),
+    tongCKTM: t(toan, 'TTCKTMai'), tongSo: t(toan, 'TgTTTBSo'), tongChu: t(toan, 'TgTTTBChu'),
+    // Riêng hoá đơn GTGT: tổng hợp theo thuế suất, tổng chưa thuế, tổng thuế, phí
+    thueSuat: kids(child(toan, 'THTTLTSuat'), 'LTSuat').map(x => ({ ts: t(x, 'TSuat'), thTien: t(x, 'ThTien'), tThue: t(x, 'TThue') })),
+    tongChuaThue: t(toan, 'TgTCThue'), tongThue: t(toan, 'TgTThue'),
+    phi, tongPhi: t(toan, 'TgTPhi') || (phi.some(p => p.tien) ? String(phi.reduce((s, p) => s + (Number(p.tien) || 0), 0)) : ''),
+    kyBoi: (/(?:^|,)\s*CN=([^,]+)/.exec(subject) || [])[1] || '',
+    kyNgay: deep(sigEl, 'SigningTime'),
+  };
+  inv.soN = Number(inv.so) || 0;
+  inv.tongN = Number(inv.tongSo) || 0;
+  inv.buyerName = inv.nmua.ten || inv.nmua.hoTen || 'Khách lẻ';
+  inv.qr = qrTraCuu(inv);
+  return inv;
+}
+
+/* ===================== Hàng hoá đặc trưng (danh mục theo trình đọc GDT) ===================== */
+const DAC_TRUNG = {
+  loai: { 1: 'Xe ô tô, xe mô tô', 2: 'Dịch vụ vận chuyển', 3: 'Dịch vụ vận chuyển trên nền tảng số, TMĐT' },
+  nhan: {
+    SKhung: 'Số khung', SMay: 'Số máy', LTSan: 'Loại tài sản', TTTSan: 'Tình trạng tài sản', XXu: 'Xuất xứ',
+    SGCNATKThuat: 'Số GCN ATKT&BVMT', SSPKTCLXXuong: 'Số seri PKTCL xuất xưởng', MNSXuat: 'Mã nước sản xuất',
+    TLTSDKy: 'Tên loại tài sản đăng ký', NSXuat: 'Năm sản xuất', TTMai: 'Tên thương mại', TNHieu: 'Tên nhãn hiệu',
+    KLXe: 'Kiểu loại xe', TTLVHCSuat: 'Thể tích làm việc/công suất', TTai: 'Trọng tải', SCNgoi: 'Số người cho phép chở',
+    SBKSoat: 'Số biển kiểm soát', BKSPTVChuyen: 'BKS phương tiện vận chuyển', TNGHang: 'Tên người gửi hàng',
+    DCNGHang: 'Địa chỉ người gửi hàng', MSTNGHang: 'MST người gửi hàng', MDDNGHang: 'Số định danh người gửi hàng',
+  },
+  giaTri: {
+    LTSan: { 1: 'Ô tô', 2: 'Mô tô xe máy' },
+    TTTSan: { 0: 'Chưa qua sử dụng', 1: 'Đã qua sử dụng' },
+    XXu: { 0: 'Sản xuất, lắp ráp trong nước', 1: 'Nhập khẩu' },
+  },
+};
+// Chỉ dòng có tính chất 5 (hàng hoá đặc trưng) mới có nội dung ở cột này.
+function dacTrungHTML(h) {
+  if (h.tchat !== '5') return '';
+  const loai = h.loaiDT || h.dt[0]?.loai || '';
+  const gop = {};
+  for (const { k, v } of h.dt) gop[k] = k in gop ? `${gop[k]}; ${v}` : v;
+  const dong = Object.entries(gop).map(([k, v]) => {
+    const giaTri = v.split(';').map(x => DAC_TRUNG.giaTri[k]?.[x.trim()] ?? x.trim()).join('; ');
+    return `${esc(DAC_TRUNG.nhan[k] || k)}: ${esc(giaTri)}`;
+  });
+  return [esc(DAC_TRUNG.loai[loai] || loai), ...dong].filter(Boolean).join('<br>');
+}
+
+/* ===================== Mã QR (tự dựng, không cần thư viện ngoài) ===================== */
+// GDT ghi tổng tiền vào QR theo kiểu số double của Java: 9500198.0, 4.482E7, 1.00798E7
+function soKieuJava(x) {
+  if (x === 0) return '0.0';
+  const a = Math.abs(x);
+  if (a >= 1e-3 && a < 1e7) { const s = String(x); return s.includes('.') ? s : `${s}.0`; }
+  const [m, e] = x.toExponential().split('e');
+  return `${m.includes('.') ? m : `${m}.0`}E${Number(e)}`;
+}
+// Nội dung QR như trang "Tra cứu hoá đơn" của GDT tạo ra (không dùng thẻ DLQRCode của phần mềm hoá đơn):
+// MST người bán, mẫu số, ký hiệu, số, ngày lập, tổng tiền thanh toán.
+function qrTraCuu(v) {
+  const tlv = (id, gt) => id + String(gt.length).padStart(2, '0') + gt;
+  const hd = tlv('00', '') + tlv('01', v.nban.mst) + tlv('02', v.khms) + tlv('03', v.khhd) + tlv('04', v.so)
+    + tlv('05', v.ngayLap.slice(0, 10).replaceAll('-', '')) + tlv('06', soKieuJava(Number(v.tongSo) || 0));
+  return `000201${tlv('01', '12')}${['02', '04', '26', '52', '53', '54', '58', '59', '60', '62'].map(id => tlv(id, '')).join('')}${tlv('99', hd)}`;
+}
+
+// Mã hoá kiểu byte (UTF-8), mức sửa lỗi L như trình đọc GDT. `epMask` chỉ dùng khi kiểm thử.
+const qrMatrix = (() => {
+  const ECC = [7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30];
+  const KHOI = [1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25];
+  const EXP = new Uint8Array(510), LOG = new Uint8Array(256);
+  for (let i = 0, x = 1; i < 255; i++) { EXP[i] = EXP[i + 255] = x; LOG[x] = i; x = (x << 1) ^ (x & 128 ? 0x11d : 0); }
+  const nhan = (a, b) => (a && b ? EXP[LOG[a] + LOG[b]] : 0);
+
+  const tongCodeword = v => {
+    let bit = (16 * v + 128) * v + 64;
+    if (v >= 2) { const n = Math.floor(v / 7) + 2; bit -= (25 * n - 10) * n - 55; if (v >= 7) bit -= 36; }
+    return bit >> 3;
+  };
+  const sucChua = v => tongCodeword(v) - ECC[v - 1] * KHOI[v - 1];
+
+  function ghepDuLieu(data, v) { // chế độ byte, độ dài, dữ liệu, đệm
+    const bits = [];
+    const them = (gt, n) => { for (let i = n - 1; i >= 0; i--) bits.push((gt >>> i) & 1); };
+    them(4, 4);
+    them(data.length, v <= 9 ? 8 : 16);
+    data.forEach(b => them(b, 8));
+    const cap = sucChua(v) * 8;
+    them(0, Math.min(4, cap - bits.length));
+    them(0, -bits.length & 7);
+    for (let pad = 0xEC; bits.length < cap; pad ^= 0xFD) them(pad, 8);
+    const out = [];
+    for (let i = 0; i < bits.length; i += 8) out.push(bits.slice(i, i + 8).reduce((a, b) => a * 2 + b, 0));
+    return out;
+  }
+  function sinhECC(ds, n) { // mã sửa lỗi Reed-Solomon
+    const g = [1];
+    for (let i = 0; i < n; i++) {
+      g.push(0);
+      for (let j = i + 1; j > 0; j--) g[j] ^= nhan(g[j - 1], EXP[i]);
+    }
+    const du = new Array(n).fill(0);
+    for (const b of ds) {
+      const f = b ^ du.shift();
+      du.push(0);
+      for (let i = 0; i < n; i++) du[i] ^= nhan(g[i + 1], f);
+    }
+    return du;
+  }
+  function xenKe(cw, v) { // chia khối, thêm mã sửa lỗi, xen kẽ các khối
+    const nKhoi = KHOI[v - 1], nEcc = ECC[v - 1], tong = tongCodeword(v);
+    const ngan = Math.floor(tong / nKhoi) - nEcc, soNgan = nKhoi - tong % nKhoi;
+    const khoi = [];
+    for (let i = 0, p = 0; i < nKhoi; i++) {
+      const len = ngan + (i < soNgan ? 0 : 1);
+      khoi.push(cw.slice(p, p + len));
+      p += len;
+    }
+    const ecc = khoi.map(k => sinhECC(k, nEcc)), out = [];
+    for (let i = 0; i <= ngan; i++) khoi.forEach(k => { if (i < k.length) out.push(k[i]); });
+    for (let i = 0; i < nEcc; i++) ecc.forEach(k => out.push(k[i]));
+    return out;
+  }
+  function viTriCanChinh(v, size) {
+    if (v === 1) return [];
+    const n = Math.floor(v / 7) + 2, buoc = Math.floor((v * 8 + n * 3 + 5) / (n * 4 - 4)) * 2, pos = [6];
+    for (let i = n - 2, p = size - 7; i >= 0; i--, p -= buoc) pos.splice(1, 0, p);
+    return pos;
+  }
+  function khung(v) { // các mẫu cố định: ô định vị, ô căn chỉnh, đường nhịp, chỗ dành cho thông tin định dạng
+    const size = 17 + 4 * v;
+    const m = Array.from({ length: size }, () => new Array(size).fill(0));
+    const co = Array.from({ length: size }, () => new Array(size).fill(false));
+    const dat = (x, y, gt) => { m[y][x] = gt ? 1 : 0; co[y][x] = true; };
+    for (let i = 0; i < size; i++) { dat(6, i, i % 2 === 0); dat(i, 6, i % 2 === 0); }
+    for (const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]]) {
+      for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+        const x = cx + dx, y = cy + dy, r = Math.max(Math.abs(dx), Math.abs(dy));
+        if (x >= 0 && y >= 0 && x < size && y < size) dat(x, y, r !== 2 && r !== 4);
+      }
+    }
+    const pos = viTriCanChinh(v, size), n = pos.length;
+    pos.forEach((cy, i) => pos.forEach((cx, j) => {
+      if ((i === 0 && j === 0) || (i === 0 && j === n - 1) || (i === n - 1 && j === 0)) return;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        dat(cx + dx, cy + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+      }
+    }));
+    for (let i = 0; i < 9; i++) if (i !== 6) { dat(8, i, 0); dat(i, 8, 0); }
+    for (let i = 0; i < 8; i++) { dat(size - 1 - i, 8, 0); dat(8, size - 1 - i, 0); }
+    dat(8, size - 8, 1);
+    if (v >= 7) {
+      let du = v;
+      for (let i = 0; i < 12; i++) du = (du << 1) ^ ((du >>> 11) * 0x1F25);
+      const bit = (v << 12) | du;
+      for (let i = 0; i < 18; i++) {
+        const b = (bit >>> i) & 1, a = size - 11 + i % 3, c = Math.floor(i / 3);
+        dat(a, c, b);
+        dat(c, a, b);
+      }
+    }
+    return { m, co, size };
+  }
+  const MASK = [
+    (x, y) => (x + y) % 2 === 0, (x, y) => y % 2 === 0, x => x % 3 === 0, (x, y) => (x + y) % 3 === 0,
+    (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0, (x, y) => (x * y) % 2 + (x * y) % 3 === 0,
+    (x, y) => ((x * y) % 2 + (x * y) % 3) % 2 === 0, (x, y) => ((x + y) % 2 + (x * y) % 3) % 2 === 0,
+  ];
+  function veVoiMask({ m, co, size }, cw, mask) {
+    const k = m.map(r => r.slice());
+    const tongBit = cw.length * 8;
+    let i = 0;
+    for (let phai = size - 1; phai >= 1; phai -= 2) {
+      if (phai === 6) phai = 5;
+      for (let d = 0; d < size; d++) for (let j = 0; j < 2; j++) {
+        const x = phai - j, y = ((phai + 1) & 2) === 0 ? size - 1 - d : d;
+        if (co[y][x]) continue;
+        const b = i < tongBit ? (cw[i >>> 3] >>> (7 - (i & 7))) & 1 : 0;
+        i++;
+        k[y][x] = b ^ (MASK[mask](x, y) ? 1 : 0);
+      }
+    }
+    const data = (1 << 3) | mask; // mức L = 01
+    let du = data;
+    for (let n = 0; n < 10; n++) du = (du << 1) ^ ((du >>> 9) * 0x537);
+    const fmt = ((data << 10) | du) ^ 0x5412, b = n => (fmt >>> n) & 1;
+    for (let n = 0; n <= 5; n++) k[n][8] = b(n);
+    k[7][8] = b(6);
+    k[8][8] = b(7);
+    k[8][7] = b(8);
+    for (let n = 9; n < 15; n++) k[8][14 - n] = b(n);
+    for (let n = 0; n < 8; n++) k[8][size - 1 - n] = b(n);
+    for (let n = 8; n < 15; n++) k[size - 15 + n][8] = b(n);
+    return k;
+  }
+  function diemPhat(k) { // chấm điểm theo chuẩn để chọn mask dễ quét nhất
+    const dong = k.map(r => r.join(''));
+    const cot = k[0].map((_, x) => k.map(r => r[x]).join(''));
+    let diem = 0, den = 0;
+    for (const l of [...dong, ...cot]) {
+      for (const run of l.match(/0{5,}|1{5,}/g) || []) diem += run.length - 2;
+      diem += 40 * (l.match(/(?=10111010000|00001011101)/g) || []).length;
+    }
+    const n = k.length;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      den += k[y][x];
+      if (x && y && k[y][x] === k[y - 1][x] && k[y][x] === k[y][x - 1] && k[y][x] === k[y - 1][x - 1]) diem += 3;
+    }
+    return diem + 10 * (Math.ceil(Math.abs(den * 20 - n * n * 10) / (n * n)) - 1);
+  }
+  return (text, epMask) => {
+    const data = [...new TextEncoder().encode(text)];
+    let v = 1;
+    while (v <= 40 && sucChua(v) * 8 < 4 + (v <= 9 ? 8 : 16) + data.length * 8) v++;
+    if (v > 40) return null;
+    const cw = xenKe(ghepDuLieu(data, v), v), k = khung(v);
+    if (epMask !== undefined) return veVoiMask(k, cw, epMask);
+    let tot = null, min = Infinity;
+    for (let mask = 0; mask < 8; mask++) {
+      const thu = veVoiMask(k, cw, mask), d = diemPhat(thu);
+      if (d < min) { min = d; tot = thu; }
+    }
+    return tot;
+  };
+})();
+function qrSVG(text) {
+  const m = text ? qrMatrix(text) : null;
+  if (!m) return '';
+  const path = m.flatMap((r, y) => [...r.join('').matchAll(/1+/g)].map(x => `M${x.index} ${y}h${x[0].length}v1h-${x[0].length}z`)).join('');
+  return `<svg class="qr" viewBox="0 0 ${m.length} ${m.length}" shape-rendering="crispEdges"><path d="${path}"/></svg>`;
+}
+
+/* ===================== Dựng trang hoá đơn ===================== */
+function invoiceHTML(v) {
+  const row = (lb, val) => `<div class="r"><span class="lb">${lb}:</span><span class="v">${esc(val)}</span></div>`;
+  const lq = v.lq ? `<div class="lq">Hóa đơn ${v.lq.loai === '2' ? 'điều chỉnh' : 'thay thế'} cho hóa đơn Mẫu số ${esc(v.lq.khms)} Ký hiệu ${esc(v.lq.khhd)} Số ${esc(v.lq.so)} ngày ${esc(dmy(v.lq.ngay))}${v.lq.ghiChu ? ` — ${esc(v.lq.ghiChu)}` : ''}</div>` : '';
+  const ck = h => {
+    const pct = Number(h.tlck) ? ` (${num(h.tlck)}%)` : '';
+    return h.stck === '' && !pct ? '' : num(h.stck || 0) + pct;
+  };
+  const g = v.gtgt;
+  const rows = v.items.map(h => `<tr>
+      <td class="m">${esc(h.stt)}</td><td>${esc(TCHAT[h.tchat] || h.tchat)}</td>${v.coDT ? `<td>${dacTrungHTML(h)}</td>` : ''}<td>${esc(h.ten)}</td>
+      <td>${esc(h.dvt)}</td><td class="n">${num(h.sl)}</td><td class="n">${num(h.dg)}</td>
+      <td class="n">${ck(h)}</td>${g ? `<td class="m">${esc(h.tsuat)}</td>` : ''}<td class="n">${num(h.thTien)}</td></tr>`).join('');
+  const sig = v.kyBoi || v.kyNgay
+    ? `<div class="sig">Signature Valid<br>Ký bởi ${esc(v.kyBoi)}<br>Ký ngày: ${esc(v.kyNgay)}</div>` : '';
+  const cktm = v.tongCKTM === '' ? '' : num(v.tongCKTM);
+  const account = p => [p.stk, p.nganHang].filter(Boolean).join(' – ');
+
+  // Mẫu số 1 (GTGT) và mẫu số 2 (bán hàng) theo đúng thứ tự trường của trình đọc XML trên GDT
+  // Hoá đơn thường: bố cục đầy đủ. Hoá đơn máy tính tiền (GTGT hoặc bán hàng): bố cục rút gọn.
+  // Trang tra cứu GDT để trống Đơn vị tiền tệ, Tỷ giá của hoá đơn máy tính tiền, kể cả khi XML có ghi.
+  const full = !v.mtt;
+  const buyer = full ? `
+    ${row('Tên người mua', v.nmua.ten)}
+    ${row('Họ tên người mua hàng', v.nmua.hoTen)}
+    ${row('Mã số thuế', v.nmua.mst)}
+    ${row('Mã ĐVCQHVNSNN', v.nmua.maDVQHNS)}
+    ${row('CCCD người mua', v.nmua.cccd)}
+    ${row('Số hộ chiếu', v.nmua.hoChieu)}
+    ${row('Địa chỉ', v.nmua.dchi)}
+    ${row('Điện thoại', v.nmua.sdt)}
+    ${row('Số tài khoản', account(v.nmua))}
+    ${row('Hình thức thanh toán', v.httt)}
+    ${row('Đơn vị tiền tệ', v.dvtt)}
+    <div class="rr">${row('Số bảng kê', v.soBK)}${row('Ngày bảng kê', dmy(v.ngayBK))}</div>` : `
+    ${row('Tên người mua', v.nmua.ten)}
+    ${row('Họ tên người mua hàng', v.nmua.hoTen)}
+    ${row('Mã số thuế', v.nmua.mst)}
+    ${g && !v.nmua.maDVQHNS ? '' : row('Mã ĐVCQHVNSNN', v.nmua.maDVQHNS)}
+    ${row('Số hộ chiếu', v.nmua.hoChieu)}
+    ${row('Địa chỉ', v.nmua.dchi)}
+    ${row('Điện thoại', v.nmua.sdt)}
+    ${row('Căn cước công dân', v.nmua.cccd)}
+    ${row('Hình thức thanh toán', v.httt)}
+    <div class="rr">${row('Đơn vị tiền tệ', '')}${row('Tỷ giá', '')}</div>
+    <div class="rr">${row('Số bảng kê', v.soBK)}${row('Ngày bảng kê', dmy(v.ngayBK))}</div>`;
+
+  // Độ rộng cột (%): cột tên hàng tự co giãn. Cột đặc trưng rộng hơn khi có dữ liệu xe, vận chuyển.
+  const widths = g ? [6.5, 9.5, 7, 7.5, 8, 7.5, 7, 13] : [6.5, 9.5, 7, 7.5, 9, 8, 10];
+  const dtW = v.items.some(h => h.tchat === '5') ? 18 : 11;
+  const col = w => `<col style="width:${w}%">`;
+  const cols = col(widths[0]) + col(widths[1]) + (v.coDT ? col(dtW) : '') + '<col>' + widths.slice(2).map(col).join('');
+  const head = `<th>STT</th><th>Tính chất</th>${v.coDT ? '<th>Loại hàng hoá đặc trưng</th>' : ''}<th>Tên hàng hóa, dịch vụ</th><th>Đơn vị tính</th><th>Số lượng</th><th>Đơn giá</th><th>Chiết khấu</th>`
+    + (g ? '<th>Thuế suất</th><th>Thành tiền chưa có thuế GTGT</th>' : '<th>Thành tiền</th>');
+  const phiTable = v.phi.length && !v.mtt ? `<table class="phi"><tr><th>STT</th><th>Tên loại phí</th><th>Tiền phí</th></tr>
+    ${v.phi.map((p, i) => `<tr><td class="m">${i + 1}</td><td>${esc(p.ten)}</td><td class="n">${p.tien === '' ? '' : num(p.tien)}</td></tr>`).join('')}</table>` : '';
+
+  const totals = g ? `
+    </table>
+    <div class="totals">
+      <div class="left">
+        ${phiTable}
+        <table class="tax">
+          <tr><th>Thuế suất</th><th>Tổng tiền chưa thuế</th><th>Tổng tiền thuế</th></tr>
+          ${v.thueSuat.map(x => `<tr><td class="m">${esc(x.ts)}</td><td class="n">${num(x.thTien)}</td><td class="n">${num(x.tThue)}</td></tr>`).join('')}
+        </table>
+      </div>
+      <table class="sums">
+        <tr><td>Tổng tiền chưa thuế<br>(Tổng cộng thành tiền chưa có thuế)</td><td class="n">${num(v.tongChuaThue || 0)}</td></tr>
+        <tr><td>Tổng tiền thuế (Tổng cộng tiền thuế)</td><td class="n">${num(v.tongThue || 0)}</td></tr>
+        ${v.mtt ? '' : `<tr><td>Tổng tiền phí</td><td class="n">${v.tongPhi === '' ? '' : num(v.tongPhi)}</td></tr>`}
+        <tr><td>Tổng tiền chiết khấu thương mại</td><td class="n">${cktm}</td></tr>
+        <tr><td>Tổng tiền thanh toán bằng số</td><td class="n">${num(v.tongSo)}</td></tr>
+        <tr><td>Tổng tiền thanh toán bằng chữ</td><td>${esc(v.tongChu)}</td></tr>
+      </table>
+    </div>` : `
+    </table>
+    <table class="sums2">
+      ${v.mtt ? '' : `<tr><td>Tổng tiền phí</td><td class="n">${v.tongPhi === '' ? '' : num(v.tongPhi)}</td></tr>`}
+      <tr><td>Tổng tiền chiết khấu thương mại</td><td class="n">${cktm}</td></tr>
+      <tr><td>Tổng tiền thanh toán bằng số</td><td class="n">${num(v.tongSo)}</td></tr>
+      <tr><td>Tổng tiền thanh toán bằng chữ</td><td>${esc(v.tongChu)}</td></tr>
+      <tr><td>Ghi chú</td><td></td></tr>
+    </table>
+    ${phiTable}`;
+
+  return `
+    <div class="top">${qrSVG(v.qr)}<div class="meta"><div>Mẫu số ${esc(v.khms)}</div><div>Ký hiệu: ${esc(v.khhd)}</div><div>Số: ${esc(v.so)}</div></div></div>
+    <h1>${g ? 'HOÁ ĐƠN GIÁ TRỊ GIA TĂNG' : 'HOÁ ĐƠN BÁN HÀNG'}</h1>
+    <div class="c">${ngayChu(v.ngayLap)}</div>
+    <div class="c">MCCQT: ${esc(v.mccqt)}</div>
+    ${lq}
+    <hr>
+    ${row('Tên người bán', v.nban.ten)}
+    ${row('Mã số thuế', v.nban.mst)}
+    ${row('Mã cửa hàng', v.nban.maCH)}
+    ${row('Tên cửa hàng', v.nban.tenCH)}
+    ${row('Địa chỉ', v.nban.dchi)}
+    ${row('Điện thoại', v.nban.sdt)}
+    ${row('Số tài khoản', account(v.nban))}
+    <hr>
+    ${buyer}
+    <table class="${g ? '' : 'm2'}">
+      <colgroup>${cols}</colgroup>
+      <thead><tr>${head}</tr></thead>
+      <tbody>${rows}</tbody>
+    ${totals}
+    <div class="signs">
+      <div>NGƯỜI MUA HÀNG<div class="i">(Chữ ký số (nếu có))</div></div>
+      <div>NGƯỜI BÁN HÀNG<div class="i">(Chữ ký điện tử, chữ ký số)</div>${sig}</div>
+    </div>
+    <div class="foot">(Cần kiểm tra, đối chiếu khi lập, nhận hóa đơn)</div>`;
+}
+
+// Tuỳ chọn "Co vừa 1 trang A4", được nhớ giữa các lần mở trang.
+const FIT_KEY = 'in-hoa-don.fit';
+let fitPage = true;
+try { fitPage = localStorage.getItem(FIT_KEY) !== '0'; } catch {}
+function applyPageRule() {
+  $('pageRule').textContent = `@page { size: A4 portrait; margin: ${fitPage ? '0' : '8mm'}; }`;
+}
+
+// Dựng trang A4. Khi bật "co vừa 1 trang": nội dung dài hơn 1 trang được co lại bằng CSS zoom,
+// bề rộng được nới theo 1/zoom để sau khi co, bản in vẫn rộng đủ khung.
+// Khi tắt: giữ cỡ chữ, chỉ ước lượng số trang để hiển thị.
+function renderInvoice(inv) {
+  const page = document.createElement('div');
+  page.className = fitPage ? 'a4-page' : 'a4-page flow';
+  const box = document.createElement('div');
+  box.className = 'inv';
+  box.innerHTML = invoiceHTML(inv);
+  const frame = document.createElement('div');
+  frame.className = 'frame';
+  frame.append(box);
+  page.append(frame);
+  $('measure').append(page);
+  if (!fitPage) {
+    // Mỗi trang in cao 281mm, trừ khung viền + đệm (~10mm) lặp lại ở mọi trang. Mỗi trang sau
+    // còn mất thêm dòng tiêu đề bảng lặp lại và tối đa một dòng hàng bị đẩy xuống (không cắt đôi).
+    const perPage = (281 - 10) * MM;
+    const h = box.getBoundingClientRect().height;
+    const thead = box.querySelector('thead').getBoundingClientRect().height;
+    const maxRow = Math.max(0, ...[...box.querySelectorAll('tbody tr')].map(tr => tr.getBoundingClientRect().height));
+    let pages = 1;
+    while (h + (pages - 1) * (thead + maxRow) > pages * perPage) pages++;
+    if (pages > 1) page.dataset.pages = pages;
+    page.remove();
+    return page;
+  }
+  const fits = z => {
+    box.style.zoom = z;
+    box.style.width = (CONTENT_W_MM / z).toFixed(3) + 'mm';
+    return box.getBoundingClientRect().height <= AVAIL_H;
+  };
+  const h = box.getBoundingClientRect().height;
+  if (h > AVAIL_H) {
+    // Cột rộng ra khi co nên chiều cao giảm nhanh hơn tỉ lệ zoom: dò nhị phân mức co lớn nhất còn vừa trang.
+    let lo = AVAIL_H / h, hi = 1;
+    while (!fits(lo)) lo *= 0.95;
+    for (let i = 0; i < 10; i++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) lo = mid; else hi = mid;
+    }
+    fits(lo);
+    page.dataset.zoom = lo.toFixed(3);
+  }
+  page.remove();
+  return page;
+}
+
+/* ===================== Nạp thư mục ===================== */
+async function loadFromDir(dir) {
+  const files = new Map();
+  for await (const h of dir.values()) if (h.kind === 'file') files.set(h.name.toLowerCase(), h);
+  const entries = [...files.values()].filter(h => /\.xml$/i.test(h.name)).map(h => ({
+    name: h.name,
+    xmlHandle: h,
+    read: async () => (await h.getFile()).text(),
+  }));
+  const log = files.get(LOG_FILE);
+  state.printed = parseLog(log ? await (await log.getFile()).text() : '');
+  state.dir = dir;
+  state.readOnly = false;
+  await loadEntries(entries, dir.name);
+}
+
+async function loadFromFileList(fileList) {
+  const all = [...fileList].filter(f => {
+    const parts = (f.webkitRelativePath || f.name).split('/');
+    return parts.length <= 2;                      // chỉ lấy file ở cấp đầu, bỏ qua thư mục con
+  });
+  const entries = all.filter(f => /\.xml$/i.test(f.name)).map(f => ({ name: f.name, read: () => f.text() }));
+  const label = (all[0]?.webkitRelativePath || '').split('/')[0] || 'các file đã chọn';
+  const log = all.find(f => f.name.toLowerCase() === LOG_FILE);
+  state.printed = parseLog(log ? await log.text() : '');
+  state.dir = null;
+  state.readOnly = true;
+  await loadEntries(entries, label);
+}
+
+async function loadEntries(entries, label) {
+  $('folderName').textContent = 'Đang đọc…';
+  $('grid').replaceChildren();
+  $('empty').textContent = `Đang đọc ${entries.length} file…`;
+  $('empty').hidden = false;
+  const items = [];
+  for (const e of entries) {
+    const it = { id: ++seq, ...e };
+    try {
+      it.inv = parseInvoice(await e.read());
+      it.page = renderInvoice(it.inv);
+      const v = it.inv;
+      it.search = norm([v.so, v.khhd + v.so, v.nmua.ten, v.nmua.hoTen, v.nmua.mst, e.name, ...v.nmua.ttKhac.map(x => x.v)].join(' '));
+    } catch (err) {
+      it.error = err.message || String(err);
+    }
+    items.push(it);
+  }
+  state.items = items;
+  state.selected.clear();
+  $('folderName').textContent = '📁 ' + label;
+  $('btnReload').disabled = false;
+  $('hint').innerHTML = state.readOnly
+    ? `<span class="warn">Chế độ chỉ đọc:</span> trình duyệt không cho ghi vào thư mục nên danh sách đã in chỉ được nhớ trong lần mở này, không lưu vào “${LOG_FILE}”.`
+    : `Sau khi đóng hộp thoại in, các hoá đơn vừa in được ghi vào file “${LOG_FILE}” trong thư mục và đánh dấu “Đã in”.`;
+  render();
+}
+
+async function reload() {
+  if (state.dir) await loadFromDir(state.dir);
+  else toast('Ở chế độ chỉ đọc, hãy chọn lại thư mục để tải lại.');
+}
+
+/* ===================== Lọc / sắp xếp / hiển thị ===================== */
+const SORTS = {
+  'so-asc': (a, b) => a.inv.khhd.localeCompare(b.inv.khhd) || a.inv.soN - b.inv.soN,
+  'so-desc': (a, b) => b.inv.khhd.localeCompare(a.inv.khhd) || b.inv.soN - a.inv.soN,
+  'date-asc': (a, b) => a.inv.ngayLap.localeCompare(b.inv.ngayLap) || a.inv.soN - b.inv.soN,
+  'date-desc': (a, b) => b.inv.ngayLap.localeCompare(a.inv.ngayLap) || b.inv.soN - a.inv.soN,
+  'buyer': (a, b) => a.inv.buyerName.localeCompare(b.inv.buyerName, 'vi') || a.inv.soN - b.inv.soN,
+  'total-desc': (a, b) => b.inv.tongN - a.inv.tongN || a.inv.soN - b.inv.soN,
+};
+
+function visibleItems() {
+  const q = norm($('q').value.trim());
+  const from = $('dFrom').value, to = $('dTo').value;
+  const hidePrinted = $('hidePrinted').checked;
+  const ok = state.items.filter(it => !it.error
+    && !(hidePrinted && isPrinted(it))
+    && (!q || q.split(/\s+/).every(w => it.search.includes(w)))
+    && (!from || it.inv.ngayLap >= from)
+    && (!to || it.inv.ngayLap <= to));
+  return ok.sort(SORTS[$('sort').value]);
+}
+
+function makeCard(it) {
+  const card = document.createElement('div');
+  card.dataset.id = it.id;
+  if (it.error) {
+    card.className = 'card err';
+    card.innerHTML = `<div class="errbox"><b>${esc(it.name)}</b>${esc(it.error)}</div>`;
+    return card;
+  }
+  const v = it.inv;
+  card.className = 'card';
+  card.title = it.name;
+  card.innerHTML = `
+    <label class="chk"><input type="checkbox"></label>
+    <div class="thumb"></div>
+    <div class="cap">
+      <div class="l1"><b>Số ${esc(v.so)}</b><span>${esc(dmy(v.ngayLap))}</span></div>
+      <div class="buyer">${esc(v.buyerName)}</div>
+      <div class="l3"><span><span class="badge ok pr">Đã in</span> ${v.gtgt ? '<span class="badge">GTGT</span> ' : ''}${v.lq ? `<span class="badge">${v.lq.loai === '2' ? 'Điều chỉnh' : 'Thay thế'}</span>` : ''}${it.page.dataset.pages ? ` <span class="badge">${it.page.dataset.pages} trang</span>` : ''}</span><b>${num(v.tongSo)} đ</b></div>
+    </div>`;
+  const thumb = card.querySelector('.thumb');
+  thumb.append(it.page);
+  thumb.insertAdjacentHTML('beforeend', '<div class="stamp"><span>Đã in</span></div>');
+  return card;
+}
+
+function render() {
+  const vis = visibleItems();
+  const errs = state.items.filter(it => it.error);
+  for (const it of state.items) if (!it.card) it.card = makeCard(it);
+  $('grid').replaceChildren(...errs.map(it => it.card), ...vis.map(it => it.card));
+  $('empty').hidden = vis.length > 0 || (errs.length > 0 && errs.length === state.items.length);
+  if (!$('empty').hidden) {
+    const allPrinted = state.items.length && $('hidePrinted').checked && state.items.every(it => it.error || isPrinted(it));
+    $('empty').innerHTML = allPrinted
+      ? 'Tất cả hoá đơn trong thư mục đã được in. Bỏ tick “Ẩn HĐ đã in” để xem lại.'
+      : state.items.length
+      ? 'Không có hoá đơn nào khớp bộ lọc.'
+      : (state.dir || state.readOnly ? 'Không thấy file .xml ngay trong thư mục này. Nếu hoá đơn nằm trong thư mục con (ví dụ XML), hãy chọn đúng thư mục con đó.' : 'Bấm <b>Chọn thư mục…</b> để mở thư mục chứa các file hoá đơn .xml');
+  }
+  updateSelectionUI(vis, errs.length);
+  updateThumbScale();
+}
+
+function updateSelectionUI(vis = visibleItems(), errCount = state.items.filter(it => it.error).length) {
+  const selVis = vis.filter(it => state.selected.has(it.id));
+  for (const it of state.items) {
+    if (it.error || !it.card) continue;
+    const on = state.selected.has(it.id);
+    it.card.classList.toggle('sel', on);
+    it.card.classList.toggle('printed', isPrinted(it));
+    it.card.querySelector('input').checked = on;
+  }
+  const printedCount = state.items.filter(it => !it.error && isPrinted(it)).length;
+  $('btnPrintSel').textContent = `In đã chọn (${selVis.length})`;
+  $('btnPrintSel').disabled = !selVis.length;
+  $('btnPrintAll').textContent = `In tất cả (${vis.length})`;
+  $('btnPrintAll').disabled = !vis.length;
+  const valid = state.items.length - errCount;
+  $('status').textContent = state.items.length
+    ? `${valid} hoá đơn · ${printedCount} đã in${errCount ? ` · ${errCount} file lỗi` : ''} · đang hiển thị ${vis.length} · đã chọn ${selVis.length}`
+    : '';
+}
+
+function updateThumbScale() {
+  const th = $('grid').querySelector('.thumb');
+  if (!th) return;
+  $('grid').style.setProperty('--s', th.clientWidth / PAGE_W);
+  $('grid').style.setProperty('--ss', th.clientWidth / PAGE_W);
+}
+new ResizeObserver(updateThumbScale).observe($('grid'));
+
+/* ===================== Modal phóng to ===================== */
+function openModal(id) {
+  state.modalList = visibleItems();
+  state.modalIdx = Math.max(0, state.modalList.findIndex(it => it.id === id));
+  $('modal').classList.add('open');
+  showModalPage();
+}
+function closeModal() { $('modal').classList.remove('open'); $('mStage').replaceChildren(); }
+function showModalPage() {
+  const list = state.modalList;
+  if (!list.length) return closeModal();
+  state.modalIdx = (state.modalIdx + list.length) % list.length;
+  const it = list[state.modalIdx];
+  const stage = $('mStage');
+  const s = state.modalFull ? 1 : Math.min(1, (stage.clientHeight - 24) / PAGE_H, (stage.clientWidth - 32) / PAGE_W);
+  const wrap = document.createElement('div');
+  wrap.className = 'pagewrap';
+  wrap.style.width = PAGE_W * s + 'px';
+  const page = it.page.cloneNode(true);
+  page.style.transform = `scale(${s})`;
+  wrap.append(page);
+  stage.replaceChildren(wrap);
+  wrap.style.height = Math.max(PAGE_H, page.offsetHeight) * s + 'px';
+  if (isPrinted(it)) {
+    wrap.style.setProperty('--ss', s);
+    wrap.insertAdjacentHTML('beforeend', `<div class="stamp" style="height:${PAGE_H * s}px"><span>Đã in</span></div>`);
+  }
+  stage.scrollTop = 0;
+  const zoom = it.page.dataset.zoom ? ` · đã co ${Math.round(it.page.dataset.zoom * 100)}% cho vừa 1 trang`
+    : it.page.dataset.pages ? ` · in thành ${it.page.dataset.pages} trang` : '';
+  $('mInfo').textContent = `${state.modalIdx + 1}/${list.length} · Số ${it.inv.so} · ${it.inv.buyerName} · ${it.name}${zoom}`;
+  $('mFit').textContent = state.modalFull ? 'Vừa màn hình' : 'Cỡ thật';
+}
+
+/* ===================== In ===================== */
+function startPrint(list) {
+  if (!list.length) return;
+  closeModal();
+  hideToast();
+  state.pending = list;
+  $('print-root').replaceChildren(...list.map(it => it.page.cloneNode(true)));
+  window.print();
+}
+
+window.addEventListener('beforeprint', () => {
+  // Người dùng tự bấm Ctrl+P: in các hoá đơn đang hiển thị nhưng không chuyển file.
+  if (!state.pending) $('print-root').replaceChildren(...visibleItems().map(it => it.page.cloneNode(true)));
+});
+
+window.addEventListener('afterprint', () => {
+  const list = state.pending;
+  state.pending = null;
+  // Đợi một nhịp để Chrome đóng hẳn hộp thoại in rồi mới dọn dẹp và đánh dấu.
+  setTimeout(async () => {
+    $('print-root').replaceChildren();
+    if (list) await markPrinted(list);
+  }, 50);
+});
+
+/* ===================== Đánh dấu đã in (da-in.txt) ===================== */
+// Chrome hỏi xác nhận mỗi khi trang ghi file .xml, nên trang không di chuyển file hoá đơn
+// mà chỉ ghi danh sách đã in vào một file .txt (loại file Chrome không hỏi).
+const keyOf = name => name.toLowerCase();
+const isPrinted = it => state.printed.has(keyOf(it.name));
+
+// Mỗi dòng: tên file <tab> thời gian in <tab> số HĐ <tab> người mua <tab> tổng tiền
+function parseLog(text) {
+  const set = new Set();
+  for (const line of text.split(/\r?\n/)) {
+    const name = line.split('\t')[0].trim();
+    if (/\.xml$/i.test(name)) set.add(keyOf(name));
+  }
+  return set;
+}
+
+async function readLog(dir) {
+  try { return await (await (await dir.getFileHandle(LOG_FILE)).getFile()).text(); }
+  catch (e) { if (e.name === 'NotFoundError') return ''; throw e; }
+}
+
+async function writeLog(dir, text) {
+  const w = await (await dir.getFileHandle(LOG_FILE, { create: true })).createWritable();
+  await w.write(text);
+  await w.close();
+}
+
+function stamp() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+async function markPrinted(list) {
+  const time = stamp();
+  const lines = list.map(it => [it.name, time, `Số ${it.inv.so}`, it.inv.buyerName, num(it.inv.tongSo)].join('\t'));
+  const wasPrinted = new Set(list.filter(isPrinted).map(it => keyOf(it.name)));
+  for (const it of list) state.printed.add(keyOf(it.name));
+  for (const it of list) state.selected.delete(it.id);
+
+  let saved = false, err = '';
+  if (state.dir) {
+    try {
+      if (!(await ensureWritable(state.dir))) throw new Error('chưa được cấp quyền ghi vào thư mục');
+      const old = await readLog(state.dir);
+      await writeLog(state.dir, old + (old && !old.endsWith('\n') ? '\r\n' : '') + lines.map(l => l + '\r\n').join(''));
+      saved = true;
+    } catch (e) {
+      err = e.message || String(e);
+    }
+  }
+  state.lastMark = { list, lines, wasPrinted, saved };
+  render();
+
+  const msg = saved
+    ? `Đã đánh dấu ${list.length} hoá đơn là đã in (ghi vào “${LOG_FILE}”).`
+    : state.dir
+      ? `Đã đánh dấu ${list.length} hoá đơn là đã in, nhưng không ghi được “${LOG_FILE}”: ${err}`
+      : `Đã đánh dấu ${list.length} hoá đơn là đã in trong lần mở này (chế độ chỉ đọc nên không lưu được “${LOG_FILE}”).`;
+  toast(msg, { label: 'Hoàn tác, hoá đơn chưa được in.', run: undoLastMark }, 30000);
+}
+
+async function undoLastMark() {
+  const last = state.lastMark;
+  if (!last) return;
+  state.lastMark = null;
+  hideToast();
+  for (const it of last.list) if (!last.wasPrinted.has(keyOf(it.name))) state.printed.delete(keyOf(it.name));
+  let err = '';
+  if (last.saved && state.dir) {
+    try {
+      const rows = (await readLog(state.dir)).split(/\r?\n/);
+      for (const l of last.lines) { const i = rows.lastIndexOf(l); if (i >= 0) rows.splice(i, 1); }
+      await writeLog(state.dir, rows.filter(r => r.trim()).map(r => r + '\r\n').join(''));
+    } catch (e) {
+      err = e.message || String(e);
+    }
+  }
+  render();
+  toast(`Đã bỏ đánh dấu ${last.list.length} hoá đơn.` + (err ? `\nKhông sửa được “${LOG_FILE}”: ${err}` : ''));
+}
+
+async function ensureWritable(dir) {
+  const opts = { mode: 'readwrite' };
+  if ((await dir.queryPermission(opts)) === 'granted') return true;
+  try { return (await dir.requestPermission(opts)) === 'granted'; } catch { return false; }
+}
+
+/* ===================== Thông báo ===================== */
+// Thông báo giữa màn hình; ms > 0 thì tự đóng, kèm thanh đếm ngược. ms = 0 thì chờ bấm Đóng.
+let toastTimer = 0;
+function toast(msg, action = null, ms = 6000) {
+  const el = $('toast');
+  el.querySelector('.msg').textContent = msg;
+  const btn = el.querySelector('.act');
+  btn.hidden = !action;
+  btn.textContent = action?.label || '';
+  btn.onclick = action ? () => action.run() : null;
+  el.classList.add('show');
+  clearInterval(toastTimer);
+  const cd = el.querySelector('.countdown');
+  cd.hidden = !ms;
+  if (!ms) return;
+  const end = Date.now() + ms;
+  const tick = () => {
+    const left = end - Date.now();
+    if (left <= 0) return hideToast();
+    cd.querySelector('span').textContent = `Tự đóng sau ${Math.ceil(left / 1000)} giây`;
+    cd.querySelector('i').style.width = (left / ms * 100) + '%';
+  };
+  tick();
+  toastTimer = setInterval(tick, 100);
+}
+function hideToast() { $('toast').classList.remove('show'); clearInterval(toastTimer); }
+$('toast').querySelector('.dismiss').onclick = hideToast;
+
+/* ===================== Ghi nhớ thư mục (IndexedDB) ===================== */
+function idb(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('in-hoa-don', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction('kv', mode);
+      const r = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => resolve(r?.result);
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+}
+const saveDirHandle = h => idb('readwrite', s => s.put(h, 'dir')).catch(() => {});
+const loadDirHandle = () => idb('readonly', s => s.get('dir')).catch(() => null);
+
+async function showReopen() {
+  const h = await loadDirHandle();
+  const btn = $('btnReopen');
+  if (!h || state.items.length) { btn.hidden = true; return; }
+  btn.hidden = false;
+  btn.innerHTML = `Mở lại thư mục <b>${esc(h.name)}</b>`;
+  btn.onclick = async () => {
+    try {
+      if ((await h.requestPermission({ mode: 'readwrite' })) !== 'granted') return toast('Chưa được cấp quyền truy cập thư mục.');
+      btn.hidden = true;
+      await loadFromDir(h);
+    } catch (e) {
+      toast(`Không mở lại được thư mục: ${e.message}. Hãy bấm “Chọn thư mục…”.`);
+    }
+  };
+}
+
+/* ===================== Sự kiện ===================== */
+$('btnPick').onclick = async () => {
+  if (!window.showDirectoryPicker) { $('dirInput').click(); return; }
+  try {
+    const dir = await window.showDirectoryPicker({ id: 'hoa-don', mode: 'readwrite' });
+    $('btnReopen').hidden = true;
+    saveDirHandle(dir);
+    await loadFromDir(dir);
+  } catch (e) {
+    if (e.name !== 'AbortError') toast(`Không mở được thư mục: ${e.message}`);
+  }
+};
+$('dirInput').onchange = e => { if (e.target.files.length) loadFromFileList(e.target.files); e.target.value = ''; };
+$('btnReload').onclick = reload;
+for (const id of ['q', 'dFrom', 'dTo', 'sort', 'hidePrinted']) $(id).addEventListener('input', render);
+$('fitPage').checked = fitPage;
+applyPageRule();
+$('fitPage').addEventListener('change', () => {
+  fitPage = $('fitPage').checked;
+  try { localStorage.setItem(FIT_KEY, fitPage ? '1' : '0'); } catch {}
+  applyPageRule();
+  for (const it of state.items) if (it.inv) { it.page = renderInvoice(it.inv); it.card = null; }
+  render();
+});
+$('btnSelAll').onclick = () => { for (const it of visibleItems()) state.selected.add(it.id); updateSelectionUI(); };
+$('btnSelNone').onclick = () => { state.selected.clear(); updateSelectionUI(); };
+$('btnPrintSel').onclick = () => startPrint(visibleItems().filter(it => state.selected.has(it.id)));
+$('btnPrintAll').onclick = () => startPrint(visibleItems());
+
+$('grid').addEventListener('click', e => {
+  const card = e.target.closest('.card');
+  if (!card || card.classList.contains('err')) return;
+  const id = Number(card.dataset.id);
+  if (e.target.closest('.thumb')) return openModal(id);
+  if (e.target.matches('input')) { e.target.checked ? state.selected.add(id) : state.selected.delete(id); }
+  else if (!e.target.closest('.chk')) { state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id); }
+  else return;                       // click vào phần label: để trình duyệt tự bấm checkbox
+  updateSelectionUI();
+});
+
+$('mPrev').onclick = () => { state.modalIdx--; showModalPage(); };
+$('mNext').onclick = () => { state.modalIdx++; showModalPage(); };
+$('mClose').onclick = closeModal;
+$('mFit').onclick = () => { state.modalFull = !state.modalFull; showModalPage(); };
+$('mPrint').onclick = () => { const it = state.modalList[state.modalIdx]; if (it) startPrint([it]); };
+$('modal').addEventListener('click', e => { if (e.target === $('mStage')) closeModal(); });
+window.addEventListener('keydown', e => {
+  if (!$('modal').classList.contains('open')) return;
+  if (e.key === 'Escape') closeModal();
+  else if (e.key === 'ArrowLeft') $('mPrev').click();
+  else if (e.key === 'ArrowRight') $('mNext').click();
+});
+window.addEventListener('resize', () => { if ($('modal').classList.contains('open')) showModalPage(); });
+
+// Trang giới thiệu hiện trước; nút "Bắt đầu" chuyển sang trang in, nút "Hướng dẫn" quay lại.
+function showApp() { $('intro').hidden = true; $('app').hidden = false; window.scrollTo(0, 0); updateThumbScale(); }
+function showIntro() { closeModal(); $('app').hidden = true; $('intro').hidden = false; window.scrollTo(0, 0); }
+for (const b of document.querySelectorAll('[data-start]')) b.onclick = showApp;
+$('btnHelp').onclick = showIntro;
+
+showReopen();
+</script>
+</body>
+</html>
