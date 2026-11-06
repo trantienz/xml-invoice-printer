@@ -4,6 +4,8 @@ Trang web chạy offline để in cùng lúc nhiều hoá đơn điện tử Vi�
 
 Toàn bộ công cụ nằm trong một file duy nhất, `in-hoa-don.html`. Không cần cài đặt, không dùng thư viện ngoài và không gửi dữ liệu đi đâu.
 
+Truy cập: https://ketoan.trantien.net/in-hoa-don.html
+
 ## Tính năng
 
 - Đọc mọi file `.xml` nằm ngay trong một thư mục, không đọc thư mục con.
