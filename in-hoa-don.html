@@ -925,8 +925,8 @@ function applyPageRule() {
   $('pageRule').textContent = `@page { size: A4 portrait; margin: ${fitPage ? '0' : '8mm'}; }`;
 }
 
-// Dựng trang A4. Khi bật "co vừa 1 trang": nội dung dài hơn 1 trang được co lại bằng CSS zoom,
-// bề rộng được nới theo 1/zoom để sau khi co, bản in vẫn rộng đủ khung.
+// Dựng trang A4. Khi bật "co vừa 1 trang": nội dung dài hơn 1 trang được thu nhỏ,
+// bề rộng được nới theo 1/tỉ lệ co để sau khi co, bản in vẫn rộng đủ khung.
 // Khi tắt: giữ cỡ chữ, chỉ ước lượng số trang để hiển thị.
 function renderInvoice(inv) {
   const page = document.createElement('div');
@@ -952,12 +952,18 @@ function renderInvoice(inv) {
     page.remove();
     return page;
   }
-  const fits = z => {
-    box.style.zoom = z;
-    box.style.width = (CONTENT_W_MM / z).toFixed(3) + 'mm';
-    return box.getBoundingClientRect().height <= AVAIL_H;
+  // Co bằng transform: scale. Khi in, Chrome đo chữ rộng hơn trên màn hình một chút nên ô sát mép
+  // có thể xuống dòng và hoá đơn dài ra. Vì vậy đo ở khổ hẹp hơn FIT_SLACK rồi mới trả lại khổ đủ:
+  // bản in có thêm chỗ cho chữ, chiều cao đo được luôn là mức tối đa.
+  // offsetHeight là chiều cao trước khi co, nên chiều cao thật sau khi co là offsetHeight × z.
+  const FIT_SLACK = 0.94;
+  const setScale = (z, k) => {
+    box.style.transformOrigin = '0 0';
+    box.style.transform = `scale(${z})`;
+    box.style.width = (CONTENT_W_MM / z * k).toFixed(3) + 'mm';
   };
-  const h = box.getBoundingClientRect().height;
+  const fits = z => { setScale(z, FIT_SLACK); return box.offsetHeight * z <= AVAIL_H; };
+  const h = box.offsetHeight;
   if (h > AVAIL_H) {
     // Cột rộng ra khi co nên chiều cao giảm nhanh hơn tỉ lệ zoom: dò nhị phân mức co lớn nhất còn vừa trang.
     let lo = AVAIL_H / h, hi = 1;
@@ -966,7 +972,7 @@ function renderInvoice(inv) {
       const mid = (lo + hi) / 2;
       if (fits(mid)) lo = mid; else hi = mid;
     }
-    fits(lo);
+    setScale(lo, 1);
     page.dataset.zoom = lo.toFixed(3);
   }
   page.remove();
